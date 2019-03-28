@@ -1,0 +1,165 @@
+---
+title: "Hw04"
+author: '107035165'
+date: "3/28/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+firm_data1 = read.csv('3firmExample_data3.csv')
+str(firm_data1)
+firm_data1$date
+```
+library(xts)
+library(PerformanceAnalytics)
+date1 = as.Date(firm_data1[,1], "%Y/%m/%d")
+#convert firm_data1 into time series data: xts
+firm_data1.xts = as.xts(firm_data1[,-1], order.by = date1)
+firm.data1<-coredata(firm_data1.xts)
+summary(firm.data1)
+skewness(firm.data1)
+rbind(apply(firm.data1, 2, summary),
+      apply(firm.data1, 2, skewness),
+      apply(firm.data1, 2, kurtosis))
+
+#====================================================================================
+# IF you know the ticker of stocks, then you can 
+# download directly from yahoo finance
+#=====================================================================================
+```{r}
+library(plyr)
+library(quantmod)
+tickers<-c("JWN", "SBUX", "MSFT")
+data.env<-new.env()
+# here we use l_ply so that we don't double save the data
+# getSymbols() does this already so we just want to be memory efficient
+# go through every stock and try to use getSymbols()
+l_ply(tickers, function(sym) try(getSymbols(sym, env=data.env), silent=T))
+# now we only want the stocks that got stored from getSymbols()
+# basically we drop all "bad" tickers
+stocks <- tickers[tickers %in% ls(data.env)]
+# now we just loop through and merge our good stocks
+# if you prefer to use an lapply version here, that is also fine
+# since now we are just collecting all the good stock xts() objects
+data <- xts()
+# i=1
+for(i in seq_along(stocks)) {
+  symbol <- stocks[i]
+  data <- merge(data, Ad(get(symbol, envir=data.env)))
+}
+head(data)
+str(data)
+# convert POSIXct into date series
+data<-xts(coredata(data), order.by = as.Date(index(data), tz=""))
+head(data)
+tail(data)
+```
+#=================================
+# Minimum variance portfolio
+#=================================
+```{r}
+library(fBasics)
+Sigma = cov(firm_data1[,2:4])
+std = sqrt(diag(Sigma))
+ones = rep(1,3)     
+one.vec = matrix(ones, ncol=1)
+a = inv(Sigma)%*%one.vec
+b = t(one.vec)%*%a
+mvp.w =a / as.numeric(b)
+mvp.w
+mvp.ret<-sum((mvp.w)*colMeans(firm_data1[,2:4]))
+
+mvp.ret
+```
+#==================================
+# Assume return is specified as 0.06.  
+# Try to find its optimal weight and standard deviation (tangency portfolio), 
+# expected return and Sharpe ratio.
+#=================================
+```{r}
+mu<-0.06/12
+return <- firm_data1[,2:4]
+Ax <- rbind(2*cov(return), colMeans(return), rep(1, ncol(return)))
+Ax <- cbind(Ax, rbind(t(tail(Ax, 2)), matrix(0, 2, 2)))
+b0 <- c(rep(0, ncol(return)), mu, 1)
+out<-solve(Ax, b0)
+wgt<-out[1:3]
+wgt
+sum(wgt)
+ret.out<-sum(wgt*colMeans(return))
+ret.out.annual<-ret.out*12
+ret.out.annual
+std.out<-sqrt(t(wgt)%*%cov(return)%*%wgt)
+std.out.annual<-std.out*sqrt(12)
+std.out.annual
+```
+#====================================================================================================
+# Or write your own function to find min var for a  specified return mu;
+# Reference: Introduction to R for Quantitative Finance: Chapter 2, p31
+# Solve a diverse range of problems with R, one of the most powerful tools for quantitative finance
+#====================================================================================================
+```{r}
+return = firm_data1[,2:4]
+#specified portfolio return: mu
+mu=0.06/12
+minvariance <- function(return, mu) {
+  #return <- log(tail(assets, -1) / head(assets, -1))
+  Ax <- rbind(2*cov(return), colMeans(return), rep(1, ncol(return)))
+  Ax <- cbind(Ax, rbind(t(tail(Ax, 2)), matrix(0, 2, 2)))
+  b0 <- c(rep(0, ncol(return)), mu, 1)
+ zx<-solve(Ax, b0)
+ weight<-zx[1:ncol(return)]
+ ret.out<-sum(weight*colMeans(return))
+ std.out<-sqrt(t(wgt)%*%cov(return)%*%wgt)
+ list(weight=weight, rtn=ret.out, sd=std.out)
+}
+
+minvariance(return, mu)
+```
+#======================================================
+# Create frontier function to plot efficient frontier
+#======================================================
+```{r}
+frontier <- function(return){
+  #return <- log(tail(assets, -1) / head(assets, -1))
+  n = ncol(return)
+  Q = cov(return)
+  Ax <- rbind(2*cov(return), colMeans(return), rep(1, n))
+  Ax <- cbind(Ax, rbind(t(tail(Ax, 2)), matrix(0, 2, 2)))
+  r <- colMeans(return)
+  rbase <- seq(min(r), max(r), length = 100)
+  s <- sapply(rbase, function(x) {
+    b0 <- c(rep(0, ncol(return)), x, 1)
+    y <- head(solve(Ax, b0), n)
+    sqrt(y%*%Q%*%y)
+  })
+  plot(s, rbase, xlab = 'Std', ylab = 'Return')
+}
+
+frontier(return)
+```
+
+```{r}
+#library(timeSeries)
+return = firm_data1[,2:4]
+# convert data to timeseries
+ret.ts<- timeSeries(return, date1)
+chart.CumReturns(ret.ts, legend.loc = 'topleft', main = '')
+
+plot(portfolioFrontier(ret.ts))
+```
+
+```{r}
+install.packages("rugarch", dependencies=TRUE)
+install.packages("PerformanceAnalytics", dependencies=TRUE)
+install.packages("fAssets", dependencies=TRUE)
+install.packages("fPortfolio",dependencies=TRUE)
+```
+
+
+
+
+
